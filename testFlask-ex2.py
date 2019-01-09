@@ -10,65 +10,33 @@ adc_list=[]
 index_list=[]
 list_max = 100
 freq = 200.0
-freq_prev = 200.0
 
 @app.route("/")
 def hello():
     # this is test page
     return "Hello World !!"
 
-
-def check_freq_range(f):
-    global freq
-    freq = f
-    if f < 100:
-          freq = 100
-          ret_str="Lower  Freq.  Let freq be 100.<br>"
-    elif f > 500:
-          freq = 500
-          ret_str="Higher Freq.  Let freq be 500.<br>"
-    else:
-          freq = f
-          ret_str = ""
-    return ret_str
-
-
-
 @app.route("/input_freq",methods=['GET','POST'])
 def input_freq():
     global freq
-    global freq_prev
     if request.method == "GET":
         freq = 200.0
         print ("Freq = ", freq)
         return """
            Current Freq is {} Hz (default) <br>
            <form action="/input_freq" method="POST">
-           <label>Frequency (100-500)  <input name="freq"></label>
+           <label>Frequency  <input name="freq"></label>
            <input type="submit" value="submit">
            </form>""".format(str(freq))
     else:
-        freq_prev=freq
         freq = request.form['freq']
         print ("Freq = ", freq)
-        try: 
-           return """
-              {}
-              Current Freq is {} Hz<br>
-              <form action="/input_freq" method="POST">
-              <label>Frequency (100-500)  <input name="freq"></label><br>
-              <input type="submit" value="submit">
-              </form>""".format(check_freq_range(int(request.form['freq'])), str(freq))
-        except:
-           freq=freq_prev
-           return """
-              Invalid Frequency Input.  Use previous freq.<br>
-              Current Freq is {} Hz<br>
-              <form action="/input_freq" method="POST">
-              <label>Frequency (100-500)  <input name="freq"></label>
-              <input type="submit" value="submit">
-              </form>""".format(str(freq))
-
+        return """
+           Current Freq is {} Hz<br>
+           <form action="/input_freq" method="POST">
+           <label>Frequency  <input name="freq"></label><br>
+           <input type="submit" value="submit">
+           </form>""".format(str(request.form['freq']))
 
 @app.route("/getadc",methods=['GET'])
 def getadc():
