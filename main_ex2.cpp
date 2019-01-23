@@ -108,12 +108,13 @@ static void initialise_wifi(void)
 
     tcpip_adapter_init();
     ESP_ERROR_CHECK( esp_event_loop_init(event_handler, NULL) );
-#if 0
+#if 1
 /* start static IP addr */
     tcpip_adapter_dhcpc_stop(TCPIP_ADAPTER_IF_STA);
 
     tcpip_adapter_ip_info_t ipInfo;
-    IP4_ADDR(&ipInfo.ip, 172,16,11,110);
+	int sekiji = 0;
+    IP4_ADDR(&ipInfo.ip, 172,16,11,70+sekiji);
     IP4_ADDR(&ipInfo.gw, 172,16,11,251);
     IP4_ADDR(&ipInfo.netmask, 255,255,255,0);
     tcpip_adapter_set_ip_info(TCPIP_ADAPTER_IF_STA, &ipInfo);
