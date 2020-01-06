@@ -60,9 +60,9 @@ const int CONNECTED_BIT = BIT0;
 #define WIFI_PASS "embedded"
 // **** need to rewrite for your RPi ****
 // RPi Flask
-#define WEB_SERVER "172.16.11.249"
+#define WEB_SERVER "10.0.0.1"
 #define WEB_PORT "5000"
-#define WEB_URL "http://172.16.11.249:5000/getadc?"
+#define WEB_URL "http://10.0.0.1:5000/getadc?"
 // **** need to rewrite for your RPi ****
 //
 // PC -flask
@@ -104,7 +104,7 @@ static void initialise_wifi(void)
 
     tcpip_adapter_init();
     ESP_ERROR_CHECK( esp_event_loop_init(event_handler, NULL) );
-#if 1
+#if 0
 /* start static IP addr */
     tcpip_adapter_dhcpc_stop(TCPIP_ADAPTER_IF_STA);
 
@@ -149,7 +149,7 @@ static void initialise_wifi(void)
 }
 
 //----------------------------------------------------------------
-// Data Send and receive 
+// Data Send and receive
 
 static void http_get_task(void *pvParameters)
 {
@@ -170,9 +170,9 @@ static void http_get_task(void *pvParameters)
 
     while (1) {
         const char *REQUEST1 = "GET " WEB_URL;
-        const char *REQUEST2 = " HTTP/1.0\r\n" 
-            "Host: " WEB_SERVER "\r\n" 
-            "User-Agent: esp-idf/1.0 esp32\r\n" 
+        const char *REQUEST2 = " HTTP/1.0\r\n"
+            "Host: " WEB_SERVER "\r\n"
+            "User-Agent: esp-idf/1.0 esp32\r\n"
             "\r\n";
         char REQUEST[2048];
 
@@ -220,7 +220,7 @@ static void http_get_task(void *pvParameters)
         ESP_LOGI(TAG, "... connected");
         freeaddrinfo(res);
 
-//  get adc value from global var. 
+//  get adc value from global var.
 
         strcpy(REQUEST, REQUEST1);
         sprintf(REQUEST + strlen(REQUEST), "ADC=%d", ad_w);
@@ -257,7 +257,7 @@ static void http_get_task(void *pvParameters)
             strcat(buf, recv_buf);
         } while(r > 0);
         /* ------------------------*/
-    
+
         ESP_LOGI(TAG, "... done reading from socket. Last read return=%d errno=%d\r\n", r, errno);
         close(s);
         vTaskDelay(1000 / portTICK_PERIOD_MS); /* wait for 1000 ms */
@@ -270,9 +270,9 @@ static void http_get_task(void *pvParameters)
 #ifdef USE_TIMER
 # define DT 0.0001  //  In the case of the timer, the minimum period is 50 micro second.
 #else
-# define DT (1.0/configTICK_RATE_HZ)  
+# define DT (1.0/configTICK_RATE_HZ)
                     //  In the case of the task, the time period is the time slice of the OS specified in menuconfig,
-                    //  which is set to 1 ms=1 kHz.  
+                    //  which is set to 1 ms=1 kHz.
 #endif
 
 
@@ -282,13 +282,13 @@ struct WaveParam{
     const double freq[4] = {100, 200, 300, 500};
     const int nFreq = sizeof(freq)/sizeof(freq[0]);
     const double amplitude = 2;
-} wave;    //  
+} wave;    //
 
 double time_c = -1;
 
 void hapticFunc(void* arg){
     const char* TAG = "H_FUNC";
-    static int i;               //  An integer to select waveform. 
+    static int i;               //  An integer to select waveform.
     static double omega = 0;    //  angular frequency
     static double B=0;          //  damping coefficient
     int ad=0;
@@ -306,7 +306,7 @@ void hapticFunc(void* arg){
     if (ad > 2400 && time_c == -1){   //  When the button is pushed after finishing to output an wave.
         //  set the time_c to 0 and update the waveform parameters.
         time_c = 0;
-// Frequency 
+// Frequency
         omega = wave.freq[i % wave.nFreq] * M_PI * 2;
         B = wave.damp[i/wave.nFreq];
         printf("Wave: %3.1fHz, A=%2.2f, B=%3.1f ", omega/(M_PI*2), wave.amplitude, B);
@@ -337,7 +337,7 @@ void hapticFunc(void* arg){
 #       endif
     }
     if (pwm > 1) pwm = 1;
-    
+
     //  Set duty rate of pwm
     mcpwm_set_duty(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, pwm* 100);
     mcpwm_set_duty_type(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, MCPWM_DUTY_MODE_0);
@@ -388,12 +388,12 @@ extern "C" void app_main()
     initialise_wifi();
     //----------------------------------
     printf("!!! Active Haptic Feedback Start !!!\n");
-    
+
     ESP_LOGI("main", "Initialize ADC");
     adc1_config_width(ADC_WIDTH_BIT_12);
     adc1_config_channel_atten(ADC1_CHANNEL_6, ADC_ATTEN_DB_11);
     ESP_LOGI("main", "Initialize PWM");
-    //1. mcpwm gpio initialization  
+    //1. mcpwm gpio initialization
     const int GPIO_PWM0A_OUT = 16;
     mcpwm_gpio_init(MCPWM_UNIT_0, MCPWM0A, GPIO_PWM0A_OUT);
     //2. initial mcpwm configuration
@@ -418,7 +418,7 @@ extern "C" void app_main()
     esp_timer_create_args_t timerDesc={
         callback: hapticFunc,
         arg: NULL,
-        dispatch_method: ESP_TIMER_TASK,        
+        dispatch_method: ESP_TIMER_TASK,
         name: "haptic"
     };
     esp_timer_handle_t timerHandle = NULL;

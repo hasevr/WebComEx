@@ -27,17 +27,38 @@
 
 #include <cJSON.h>
 
+#include <freertos/queue.h>
+
 const char* TAG = "main";
 
 //----------------------------------------------------------------
 
 #define MAX_COUNT 1000
+#define SEND_SAMPLE_INTERVAL 10
+#define SEND_SIZE  (MAX_COUNT/SEND_SAMPLE_INTERVAL)
 
 int ad_w=0;
+int ad_last=0;
+int ad_list[MAX_COUNT];
+// time_t now_w=0;
+int64_t now_w=0;
+// time_t now_list[MAX_COUNT];
+int64_t now_last=0;
+double now_list[MAX_COUNT];
+double freq_value=200.0;
 
 int count = 0;
 
-double freq_value=200.0;
+//----------------------------------------------------------------
+
+QueueHandle_t  q=NULL;
+
+typedef struct queue_data_st {
+      int ad;
+      double now;
+} queue_data_t;
+
+#define QUEUE_LENGTH 100
 
 //----------------------------------------------------------------
 /* The examples use simple WiFi configuration that you can set via
@@ -62,17 +83,15 @@ const int CONNECTED_BIT = BIT0;
 // #define WIFI_PASS "espwroom32"
 #define WIFI_SSID "ICT-EX5"
 #define WIFI_PASS "embedded"
-// **** need to rewrite for your RPi ****
+// need to rewrite for your RPi
 // RPi Flask
 #define WEB_SERVER "10.0.0.1"
 #define WEB_PORT "5000"
-#define WEB_URL "http://10.0.0.1:5000/getadc?"
-// **** need to rewrite for your RPi ****
-//
+#define WEB_URL "http://10.0.0.1:5000/getadclist?"
 // PC -flask
-// #define WEB_SERVER "172.16.11.161"
-// #define WEB_PORT "5000"
-// #define WEB_URL "http://172.16.11.161:5000/getadc?"
+//#define WEB_SERVER "172.16.11.161"
+//#define WEB_PORT "5000"
+//#define WEB_URL "http://172.16.11.161:5000/getadclist?"
 
 //----------------------------------------------------------------
 // WiFi Initialize
@@ -113,8 +132,7 @@ static void initialise_wifi(void)
     tcpip_adapter_dhcpc_stop(TCPIP_ADAPTER_IF_STA);
 
     tcpip_adapter_ip_info_t ipInfo;
-	int sekiji = 0;
-    IP4_ADDR(&ipInfo.ip, 172,16,11,70+sekiji);
+    IP4_ADDR(&ipInfo.ip, 172,16,11,110);
     IP4_ADDR(&ipInfo.gw, 172,16,11,251);
     IP4_ADDR(&ipInfo.netmask, 255,255,255,0);
     tcpip_adapter_set_ip_info(TCPIP_ADAPTER_IF_STA, &ipInfo);
@@ -170,7 +188,16 @@ static void http_get_task(void *pvParameters)
     struct addrinfo *res;
     struct in_addr *addr;
     int s, r;
-    char recv_buf[128];
+    char recv_buf[64];
+
+    int    count_buf;
+//    int    ad_buf_list[MAX_COUNT];
+//    double now_buf_list[MAX_COUNT];
+    int    ad_send_list[MAX_COUNT];
+    double now_send_list[MAX_COUNT];
+    int i, k;
+
+    queue_data_t qd;
 
     while (1) {
         const char *REQUEST1 = "GET " WEB_URL;
@@ -178,9 +205,10 @@ static void http_get_task(void *pvParameters)
             "Host: " WEB_SERVER "\r\n"
             "User-Agent: esp-idf/1.0 esp32\r\n"
             "\r\n";
-        char REQUEST[2048];
+        char REQUEST[18000];/* 1000x8x2+alpha */
 
-        ESP_LOGI(TAG, "restart http_get_task : ADC %d count %d", ad_w, count);
+//        xQueueReceive(q,&pack_r,(TickType_t )(1000/portTICK_PERIOD_MS));
+        ESP_LOGI(TAG, "restart http_get_task : ADC %d time %lld count %d", ad_w, now_w, count);
 
         /* Wait for the callback to set the CONNECTED_BIT in the
            event group.
@@ -224,11 +252,45 @@ static void http_get_task(void *pvParameters)
         ESP_LOGI(TAG, "... connected");
         freeaddrinfo(res);
 
-//  get adc value from global var.
+        /* ------------------------*/
+//  get ad and now (time) list from global var.
+//  pack them as cjson object and array
+// sample the ad and now time
+
+//        ESP_LOGI(TAG, "Count1 %d", count);
+        count_buf = count;
+//        for ( i=0; i<MAX_COUNT; i++) {
+//            ad_buf_list[i]=ad_list[i];
+//            now_buf_list[i]=now_list[i];
+//        }
+//        ESP_LOGI(TAG, "Count2 %d", count);
+        for ( i=count_buf, k=0; i<MAX_COUNT; i+=SEND_SAMPLE_INTERVAL, k++) {
+            ad_send_list[k]=ad_list[i];
+            now_send_list[k]=now_list[i];
+        }
+        ESP_LOGI(TAG, "Count11 %d i %d k %d ", count_buf, i, k);
+        for ( i=count_buf%SEND_SAMPLE_INTERVAL; i<count_buf; i+=SEND_SAMPLE_INTERVAL, k++) {
+            ad_send_list[k]=ad_list[i];
+            now_send_list[k]=now_list[i];
+        }
+        ESP_LOGI(TAG, "Count12 %d i %d k %d ", count_buf, i, k);
+//        ESP_LOGI(TAG, "Count3 %d", count);
+
+        cJSON *roots = NULL;
+        char *obj, *op;
+        roots = cJSON_CreateObject();
+        cJSON_AddItemToObject(roots, "adc", cJSON_CreateIntArray(ad_send_list, SEND_SIZE));
+        cJSON_AddItemToObject(roots, "time", cJSON_CreateDoubleArray(now_send_list, SEND_SIZE));
+        cJSON_AddNumberToObject(roots, "count", count_buf);
 
         strcpy(REQUEST, REQUEST1);
-        sprintf(REQUEST + strlen(REQUEST), "ADC=%d", ad_w);
+        obj=cJSON_PrintUnformatted(roots);
+//        for (op=obj; *op!='\0'; op++)
+//             if (*op=='\n' || *op=='\r') *op=' ';
+        sprintf(REQUEST + strlen(REQUEST), "JSON=%s", obj);
+        cJSON_Delete(roots);
         strcat(REQUEST, REQUEST2);
+//        ESP_LOGI(TAG, "SEND REQUEST %s", REQUEST);
         if (write(s, REQUEST, strlen(REQUEST)) < 0) {
             ESP_LOGE(TAG, "... socket send failed");
             close(s);
@@ -236,6 +298,7 @@ static void http_get_task(void *pvParameters)
             continue;
         }
         ESP_LOGI(TAG, "... socket send success");
+        /* ------------------------*/
 
         struct timeval receiving_timeout;
         receiving_timeout.tv_sec = 5;
@@ -262,29 +325,21 @@ static void http_get_task(void *pvParameters)
         } while(r > 0);
         /* ------------------------*/
         // printf("Buffer %s\n", buf);
+
         cJSON *root = NULL;
         char  *bufptr;
 
         for (bufptr=buf; *bufptr != '\0'&& *bufptr != '{'; bufptr++) ;
         if (*bufptr == '{') {
-        //   printf("Buffer stripped %s\n", bufptr);
+            // printf("Buffer stripped %s\n", bufptr);
             root=cJSON_Parse(bufptr);
-            if (root == NULL) {
-               ESP_LOGE(TAG, "... received wrong json format");
-               continue;
-            }
-            if (cJSON_GetObjectItem(root, "freq")==NULL) {
-               ESP_LOGE(TAG, "... freq not found");
-               continue;
-            }
-        //    printf("freq: %s\n", cJSON_Print(cJSON_GetObjectItem(root, "freq")));
             freq_value=atof(cJSON_Print(cJSON_GetObjectItem(root, "freq")));
-            printf("received freq_value = %lf\n", freq_value);
-        /* check the received freq_value */
+            printf("received freq_value = %lf", freq_value);
             if (freq_value<100) freq_value=100;
             else if (freq_value>500) freq_value=500;
             printf(" modified freq_value = %lf\n", freq_value);
         }
+        /* ------------------------*/
 
         ESP_LOGI(TAG, "... done reading from socket. Last read return=%d errno=%d\r\n", r, errno);
         close(s);
@@ -311,7 +366,7 @@ struct WaveParam{
     const int nFreq = sizeof(freq)/sizeof(freq[0]);
     const double amplitude = 2;
 } wave;    //
-
+// int count = 0;
 double time_c = -1;
 
 void hapticFunc(void* arg){
@@ -320,11 +375,22 @@ void hapticFunc(void* arg){
     static double omega = 0;    //  angular frequency
     static double B=0;          //  damping coefficient
     int ad=0;
+    int64_t now;
+//    time_t now;
+    queue_data_t qd;
 
 /* -------- */
     // int ad = adc1_get_raw(ADC1_CHANNEL_6);
     ad = adc1_get_raw(ADC1_CHANNEL_6);
+    ad_list[count]=ad;
+    now = esp_timer_get_time();
+//    time(&now);
+    now_list[count]=(double) ((int64_t) (now/1000));
     ad_w = ad;
+    now_w = now;
+//    ESP_LOGI(TAG, "call http_get_task : ADC %d time %lld count %d", ad, now, count);
+//    http_data_send();
+//    xTaskCreate(&http_get_task, "http_get_task", 4096, NULL, 5, NULL);
 
 /* -------- */
     if (ad < 2100 && time_c > 0.3){
@@ -332,11 +398,15 @@ void hapticFunc(void* arg){
         printf("\r\n");
     }
     if (ad > 2400 && time_c == -1){   //  When the button is pushed after finishing to output an wave.
+//        ESP_LOGI(TAG, "call http_get_task : ADC %d time %lld count %d", ad, now, count);
+//        ad_w = ad; now_w = now;
+//        http_data_send(ad, now);
+
         //  set the time_c to 0 and update the waveform parameters.
         time_c = 0;
 // Frequency
+//        omega = wave.freq[i % wave.nFreq] * M_PI * 2;
         omega = freq_value * M_PI * 2;
-        // omega = wave.freq[i % wave.nFreq] * M_PI * 2;
         B = wave.damp[i/wave.nFreq];
         printf("Wave: %3.1fHz, A=%2.2f, B=%3.1f ", omega/(M_PI*2), wave.amplitude, B);
         i++;
@@ -371,8 +441,12 @@ void hapticFunc(void* arg){
     mcpwm_set_duty(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, pwm* 100);
     mcpwm_set_duty_type(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, MCPWM_DUTY_MODE_0);
     count ++;
+//    if (count >= 1000 ){
     if (count >= 1000 ){
-        ESP_LOGI(TAG, "count 1000 : ADC %d count %d", ad, count);
+        ESP_LOGI(TAG, "count 1000 : ADC %d time %lld count %d", ad, now, count);
+//        ad_w = ad; now_w = now;
+//        http_data_send(ad, now);
+////        xTaskCreate(&http_get_task, "http_get_task", 4096, NULL, 5, NULL);
         count = 0;
     }
 }
@@ -389,6 +463,8 @@ void hapticTask(void* arg){
 extern "C" void app_main()
 //void app_main()
 {
+    q=xQueueCreate(QUEUE_LENGTH, sizeof(queue_data_t));
+
     //----------------------------------
     //Initialize NVS
     ESP_LOGI("main", "Initialize NVS");
@@ -457,7 +533,7 @@ extern "C" void app_main()
     TaskHandle_t taskHandle = NULL;
     xTaskCreate(hapticTask, "Haptic", 1024 * 15, NULL, 6, &taskHandle);
 #endif
-    xTaskCreate(&http_get_task, "http_get_task", 1024 * 15, NULL, 3, NULL);
+    xTaskCreate(&http_get_task, "http_get_task", 1024 * 40, NULL, 3, NULL);
 
 
     uart_driver_install(UART_NUM_0, 1024, 1024, 10, NULL, 0);
