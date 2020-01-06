@@ -86,8 +86,8 @@ const int CONNECTED_BIT = BIT0;
 // need to rewrite for your RPi
 // RPi Flask
 #define WEB_SERVER "10.0.0.1"
-#define WEB_PORT "5000"
 #define WEB_URL "http://10.0.0.1:5000/getadclist?"
+#define WEB_PORT "5000"
 // PC -flask
 //#define WEB_SERVER "172.16.11.161"
 //#define WEB_PORT "5000"
