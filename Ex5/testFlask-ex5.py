@@ -52,7 +52,7 @@ def getadc():
      #    print( "ADC = ", adc_value)
      print('Count = ', data_count )
      #
-     if len(index_list) > list_max: 
+     if len(index_list) > list_max:
         index_list.pop(0)
         adc_list.pop(0)
      #
@@ -63,7 +63,7 @@ def getadc():
      # print( 'index list = {}'.format( index_list ) )
      # print( 'adc   list = {}'.format( adc_list ) )
      #--------------------------------------------
-     freq = float(freq) 
+     freq = float(freq)
      return jsonify( adc=adc_value, freq=freq )
      #return jsonify( { 'adc':adc_value })
 
@@ -95,4 +95,4 @@ def graph1():
   return response
 
 if __name__ == "__main__":
-     app.run(host="0.0.0.0", port=5000, debug=True, threaded=True)
+     app.run(host="0.0.0.0", port=50000, debug=True, threaded=True)
