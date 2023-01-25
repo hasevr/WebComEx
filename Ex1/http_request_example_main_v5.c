@@ -10,7 +10,6 @@
 #include <freertos/event_groups.h>
 #include <esp_system.h>
 #include <esp_wifi.h>
-#include <esp_event_loop.h>
 #include <esp_log.h>
 #include <nvs_flash.h>
 
@@ -36,11 +35,11 @@ static EventGroupHandle_t s_wifi_event_group;
    to the AP with an IP? */
 const int CONNECTED_BIT = BIT0;
 
-#define WIFI_SSID "ICT-EX5"
+#define WIFI_SSID "ICT_EX5_2G"
 #define WIFI_PASS "embedded"
-#define WEB_SERVER "10.0.0.1"
-#define WEB_URL "http://10.0.0.1:50000/getadc?ADC="
-#define WEB_PORT "50000"
+#define WEB_SERVER "10.0.1.6"						//	<- Use your raspberry pi's ip address here.
+#define WEB_URL "http://10.0.1.6/getadc?ADC="		//	<- Use your raspberry pi's ip address here.
+#define WEB_PORT "80"
 
 static const char *TAG = "example";
 
