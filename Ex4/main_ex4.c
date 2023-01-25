@@ -18,7 +18,6 @@
 #include <time.h>
 #include <sys/time.h>
 #include <esp_wifi.h>
-#include <esp_event_loop.h>
 #include <lwip/err.h>
 #include <lwip/sockets.h>
 #include <lwip/sys.h>
@@ -45,9 +44,11 @@ int count = 0;
 // #define EXAMPLE_WIFI_SSID CONFIG_WIFI_SSID
 // #define EXAMPLE_WIFI_PASS CONFIG_WIFI_PASSWORD
 
-/* FreeRTOS event group to signal when we are connected & ready to make a request */
-static EventGroupHandle_t wifi_event_group;
-
+/* FreeRTOS event group to signal when we are connected*/
+static EventGroupHandle_t s_wifi_event_group;
+#define WIFI_CONNECTED_BIT BIT0
+#define WIFI_FAIL_BIT      BIT1
+#define ESP_WIFI_SCAN_AUTH_MODE_THRESHOLD WIFI_AUTH_WEP
 /* The event group allows multiple bits for each event,
    but we only care about one event - are we connected
    to the AP with an IP? */
@@ -56,12 +57,10 @@ const int CONNECTED_BIT = BIT0;
 // need to rewrite for WiFi AP
 // #define WIFI_SSID "ICTEX51"
 // #define WIFI_PASS "espwroom32"
-#define WIFI_SSID "ICT-EX5"
+#define WIFI_SSID "ICT_EX5_2G"
 #define WIFI_PASS "embedded"
-// **** need to rewrite for your RPi ****
-// RPi Flask
-#define WEB_SERVER "10.0.0.1"
-#define WEB_URL "http://10.0.0.1:50000/getadc?"
+#define WEB_SERVER "10.0.1.6"                       //  <- Use your raspberry pi's ip address here.
+#define WEB_URL "http://10.0.1.6/getadc?ADC="       //  <- Use your raspberry pi's ip address here.
 #define WEB_PORT "50000"
 // **** need to rewrite for your RPi ****
 //
@@ -73,79 +72,75 @@ const int CONNECTED_BIT = BIT0;
 //----------------------------------------------------------------
 // WiFi Initialize
 
-static esp_err_t event_handler(void *ctx, system_event_t *event)
+static void event_handler(void* arg, esp_event_base_t event_base,
+                                int32_t event_id, void* event_data)
 {
-//    ESP_LOGI(TAG, "event_handler.");
-    switch(event->event_id) {
-    case SYSTEM_EVENT_STA_START:
-//        ESP_LOGI(TAG, "event_handler. SYSTEM_EVENT_STA_START");
+    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
         esp_wifi_connect();
-        break;
-    case SYSTEM_EVENT_STA_GOT_IP:
-//        ESP_LOGI(TAG, "event_handler. SYSTEM_EVENT_STA_GOT_IP");
-        xEventGroupSetBits(wifi_event_group, CONNECTED_BIT);
-        break;
-    case SYSTEM_EVENT_STA_DISCONNECTED:
-        /* This is a workaround as ESP32 WiFi libs don't currently
-           auto-reassociate. */
-//        ESP_LOGI(TAG, "event_handler. SYSTEM_EVENT_STA_DISCONNECTED");
+    } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
         esp_wifi_connect();
-        xEventGroupClearBits(wifi_event_group, CONNECTED_BIT);
-        break;
-    default:
-        break;
+        xEventGroupClearBits(s_wifi_event_group, CONNECTED_BIT);
+    } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
+        xEventGroupSetBits(s_wifi_event_group, CONNECTED_BIT);
     }
-    return ESP_OK;
 }
+
 
 static void initialise_wifi(void)
 {
-    wifi_event_group = xEventGroupCreate();
-
-    tcpip_adapter_init();
-    ESP_ERROR_CHECK( esp_event_loop_init(event_handler, NULL) );
-#if 0
-/* start static IP addr */
-    tcpip_adapter_dhcpc_stop(TCPIP_ADAPTER_IF_STA);
-
-    tcpip_adapter_ip_info_t ipInfo;
-	int sekiji=0;
-    IP4_ADDR(&ipInfo.ip, 172,16,11,70+sekiji);
-    IP4_ADDR(&ipInfo.gw, 172,16,11,251);
-    IP4_ADDR(&ipInfo.netmask, 255,255,255,0);
-    tcpip_adapter_set_ip_info(TCPIP_ADAPTER_IF_STA, &ipInfo);
-
-    ip_addr_t dnsserver;
-    IP_ADDR4( &dnsserver, 172,16,11,251);
-    dns_setserver(0, &dnsserver);
-/* end static IP addr */
-#endif
+    s_wifi_event_group = xEventGroupCreate();
+    ESP_ERROR_CHECK(esp_netif_init());
+    ESP_ERROR_CHECK(esp_event_loop_create_default());
+    esp_netif_create_default_wifi_sta();
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK( esp_wifi_init(&cfg) );
-    ESP_ERROR_CHECK( esp_wifi_set_storage(WIFI_STORAGE_RAM) );
-/* ------------------------*/
-//    ESP_LOGI(TAG, "Setting WiFi configuration SSID %s...", WIFI_SSID);
-    wifi_config_t wifi_config;
-    memset(&wifi_config, 0, sizeof(wifi_config));
-    sprintf (reinterpret_cast<char*>(wifi_config.sta.ssid), WIFI_SSID );
-    sprintf (reinterpret_cast<char*>(wifi_config.sta.password), WIFI_PASS);
-//    wifi_config_t wifi_config = { };
-//    wifi_config.sta.ssid=(char *) WIFI_SSID;
-//    wifi_config.sta.password=(char *) WIFI_PASS;
-/* ------------------------*/
-//    wifi_config_t wifi_config = {
-//        .sta = {
-//            { .ssid = WIFI_SSID },
-//            { .password = WIFI_PASS },
-////            { .ssid = EXAMPLE_WIFI_SSID },
-////            { .password = EXAMPLE_WIFI_PASS },
-//        },
-//    };
-/* ------------------------*/
-    ESP_LOGI(TAG, "Setting WiFi configuration SSID %s...", wifi_config.sta.ssid);
-    ESP_ERROR_CHECK( esp_wifi_set_mode(WIFI_MODE_STA) );
-    ESP_ERROR_CHECK( esp_wifi_set_config(WIFI_IF_STA, &wifi_config) );
-    ESP_ERROR_CHECK( esp_wifi_start() );
+    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+    esp_event_handler_instance_t instance_any_id;
+    esp_event_handler_instance_t instance_got_ip;
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT,
+                                                        ESP_EVENT_ANY_ID,
+                                                        &event_handler,
+                                                        NULL,
+                                                        &instance_any_id));
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT,
+                                                        IP_EVENT_STA_GOT_IP,
+                                                        &event_handler,
+                                                        NULL,
+                                                        &instance_got_ip));
+    wifi_config_t wifi_config = {
+        .sta = {
+            .ssid = WIFI_SSID,
+            .password = WIFI_PASS,
+            /* Authmode threshold resets to WPA2 as default if password matches WPA2 standards (pasword len => 8).
+             * If you want to connect the device to deprecated WEP/WPA networks, Please set the threshold value
+             * to WIFI_AUTH_WEP/WIFI_AUTH_WPA_PSK and set the password with length and format matching to
+         * WIFI_AUTH_WEP/WIFI_AUTH_WPA_PSK standards.
+             */
+            .threshold.authmode = ESP_WIFI_SCAN_AUTH_MODE_THRESHOLD,
+            .sae_pwe_h2e = WPA3_SAE_PWE_BOTH,
+        },
+    };
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA) );
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config) );
+    ESP_ERROR_CHECK(esp_wifi_start() );
+    ESP_LOGI(TAG, "wifi_init_sta finished.");
+    /* Waiting until either the connection is established (WIFI_CONNECTED_BIT) or connection failed for the maximum
+     * number of re-tries (WIFI_FAIL_BIT). The bits are set by event_handler() (see above) */
+    EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group,
+            WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
+            pdFALSE,
+            pdFALSE,
+            portMAX_DELAY);
+    /* xEventGroupWaitBits() returns the bits before the call returned, hence we can test which event actually
+     * happened. */
+    if (bits & WIFI_CONNECTED_BIT) {
+        ESP_LOGI(TAG, "connected to ap SSID:%s password:%s",
+                 WIFI_SSID, WIFI_PASS);
+    } else if (bits & WIFI_FAIL_BIT) {
+        ESP_LOGI(TAG, "Failed to connect to SSID:%s, password:%s",
+                 WIFI_SSID, WIFI_PASS);
+    } else {
+        ESP_LOGE(TAG, "UNEXPECTED EVENT");
+    }
 }
 
 //----------------------------------------------------------------
@@ -182,7 +177,7 @@ static void http_get_task(void *pvParameters)
            event group.
         */
 //        ESP_LOGI(TAG, "Start Connection to AP: ADC %d", ad);
-        xEventGroupWaitBits(wifi_event_group, CONNECTED_BIT,
+        xEventGroupWaitBits(s_wifi_event_group, CONNECTED_BIT,
                             false, true, portMAX_DELAY);
         ESP_LOGI(TAG, "Connected to AP");
 
@@ -277,12 +272,13 @@ static void http_get_task(void *pvParameters)
 
 
 struct WaveParam{
-    const double damp[3] = {-10, -20, -30};
-    const int nDamp = sizeof(damp) / sizeof(damp[0]);
-    const double freq[4] = {100, 200, 300, 500};
-    const int nFreq = sizeof(freq)/sizeof(freq[0]);
-    const double amplitude = 2;
-} wave;    //
+    const double damp[3];
+    const int nDamp;
+    const double freq[4];
+    const int nFreq;
+    const double amplitude;
+} wave = {{-10, -20, -30},sizeof(wave.damp) / sizeof(wave.damp[0]), {100, 200, 300, 500}, sizeof(wave.freq)/sizeof(wave.freq[0]), 2};
+
 
 double time_c = -1;
 
@@ -357,8 +353,8 @@ void hapticTask(void* arg){
 }
 #endif
 
-extern "C" void app_main()
-//void app_main()
+// extern "C" void app_main()
+void app_main()
 {
     //----------------------------------
     //Initialize NVS

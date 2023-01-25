@@ -39,9 +39,9 @@ const int CONNECTED_BIT = BIT0;
 #define WIFI_PASS "embedded"
 #define WEB_SERVER "10.0.1.6"						//	<- Use your raspberry pi's ip address here.
 #define WEB_URL "http://10.0.1.6/getadc?ADC="		//	<- Use your raspberry pi's ip address here.
-#define WEB_PORT "80"
+#define WEB_PORT "50000"
 
-static const char *TAG = "example";
+static const char *TAG = "main";
 
 static void event_handler(void* arg, esp_event_base_t event_base,
                                 int32_t event_id, void* event_data)
